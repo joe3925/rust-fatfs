@@ -1,13 +1,6 @@
 Rust FAT FS
 ===========
-
-[![CI Status](https://github.com/rafalh/rust-fatfs/actions/workflows/ci.yml/badge.svg)](https://github.com/rafalh/rust-fatfs/actions/workflows/ci.yml)
-[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE.txt)
-[![crates.io](https://img.shields.io/crates/v/fatfs)](https://crates.io/crates/fatfs)
-[![Documentation](https://docs.rs/fatfs/badge.svg)](https://docs.rs/fatfs)
-[![Minimum rustc version](https://img.shields.io/badge/rustc-1.68+-yellow.svg)](https://blog.rust-lang.org/2023/03/09/Rust-1.68.0/)
-
-A FAT filesystem library implemented in Rust.
+A FAT filesystem library implemented in Rust. Modified to integrate with RustOS.
 
 Features:
 * read/write file using standard Read/Write traits
