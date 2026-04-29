@@ -1,3 +1,5 @@
+cargo-features = ["profile-rustflags"]
+
 [package]
 name = "fatfs"
 version = "0.4.0"
@@ -12,13 +14,9 @@ license = "MIT"
 description = """
 FAT filesystem library.
 """
-exclude = [
-    "resources/*",
-]
+exclude = ["resources/*"]
 
 [features]
-# Use Rust std library
-std = []
 # LFN (Long File Name) support
 lfn = []
 # Use dynamic allocation. When used without std please enable core_io/collections
@@ -28,23 +26,26 @@ unicode = []
 # Enable only error-level logging
 log_level_error = []
 # Enable logging levels warn and up
-log_level_warn  = ["log_level_error"]
+log_level_warn = ["log_level_error"]
 # Enable logging levels info and up
-log_level_info  = ["log_level_warn"]
+log_level_info = ["log_level_warn"]
 # Enable logging levels debug and up
 log_level_debug = ["log_level_info"]
 # Enable all logging levels: trace and up
 log_level_trace = ["log_level_debug"]
 
 # Default features
-default = ["chrono", "std", "alloc", "lfn", "unicode", "log_level_trace"]
+default = ["alloc", "lfn", "unicode", "log_level_trace"]
 
 [dependencies]
 bitflags = { version = "2", default-features = false }
 log = { version = "0.4", default-features = false }
-chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
+chrono = { version = "0.4", default-features = false, optional = true }
+kernel_types = { version = "0.1.0", path = "../kernel_types" }
 
 [dev-dependencies]
 env_logger = "0.9"
 fscommon = "0.1"
 tempfile = "3.24.0"
+
+[workspace]

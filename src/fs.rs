@@ -1,4 +1,4 @@
-#[cfg(all(not(feature = "std"), feature = "alloc"))]
+#[cfg(feature = "alloc")]
 use alloc::string::String;
 use core::borrow::BorrowMut;
 use core::cell::{Cell, RefCell};
@@ -135,25 +135,25 @@ impl FsInfoSector {
     const STRUC_SIG: u32 = 0x6141_7272;
     const TRAIL_SIG: u32 = 0xAA55_0000;
 
-    fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, Error<R::Error>> {
-        let lead_sig = rdr.read_u32_le()?;
+    async fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, Error<R::Error>> {
+        let lead_sig = rdr.read_u32_le().await?;
         if lead_sig != Self::LEAD_SIG {
             error!("invalid lead_sig in FsInfo sector: {}", lead_sig);
             return Err(Error::CorruptedFileSystem);
         }
         let mut reserved = [0_u8; 480];
-        rdr.read_exact(&mut reserved)?;
-        let struc_sig = rdr.read_u32_le()?;
+        rdr.read_exact(&mut reserved).await?;
+        let struc_sig = rdr.read_u32_le().await?;
         if struc_sig != Self::STRUC_SIG {
             error!("invalid struc_sig in FsInfo sector: {}", struc_sig);
             return Err(Error::CorruptedFileSystem);
         }
-        let free_cluster_count = match rdr.read_u32_le()? {
+        let free_cluster_count = match rdr.read_u32_le().await? {
             0xFFFF_FFFF => None,
             // Note: value is validated in FileSystem::new function using values from BPB
             n => Some(n),
         };
-        let next_free_cluster = match rdr.read_u32_le()? {
+        let next_free_cluster = match rdr.read_u32_le().await? {
             0xFFFF_FFFF => None,
             0 | 1 => {
                 warn!("invalid next_free_cluster in FsInfo sector (values 0 and 1 are reserved)");
@@ -163,8 +163,8 @@ impl FsInfoSector {
             n => Some(n),
         };
         let mut reserved2 = [0_u8; 12];
-        rdr.read_exact(&mut reserved2)?;
-        let trail_sig = rdr.read_u32_le()?;
+        rdr.read_exact(&mut reserved2).await?;
+        let trail_sig = rdr.read_u32_le().await?;
         if trail_sig != Self::TRAIL_SIG {
             error!("invalid trail_sig in FsInfo sector: {}", trail_sig);
             return Err(Error::CorruptedFileSystem);
@@ -176,16 +176,16 @@ impl FsInfoSector {
         })
     }
 
-    fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), Error<W::Error>> {
-        wrt.write_u32_le(Self::LEAD_SIG)?;
+    async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), Error<W::Error>> {
+        wrt.write_u32_le(Self::LEAD_SIG).await?;
         let reserved = [0_u8; 480];
-        wrt.write_all(&reserved)?;
-        wrt.write_u32_le(Self::STRUC_SIG)?;
-        wrt.write_u32_le(self.free_cluster_count.unwrap_or(0xFFFF_FFFF))?;
-        wrt.write_u32_le(self.next_free_cluster.unwrap_or(0xFFFF_FFFF))?;
+        wrt.write_all(&reserved).await?;
+        wrt.write_u32_le(Self::STRUC_SIG).await?;
+        wrt.write_u32_le(self.free_cluster_count.unwrap_or(0xFFFF_FFFF)).await?;
+        wrt.write_u32_le(self.next_free_cluster.unwrap_or(0xFFFF_FFFF)).await?;
         let reserved2 = [0_u8; 12];
-        wrt.write_all(&reserved2)?;
-        wrt.write_u32_le(Self::TRAIL_SIG)?;
+        wrt.write_all(&reserved2).await?;
+        wrt.write_u32_le(Self::TRAIL_SIG).await?;
         Ok(())
     }
 
@@ -345,13 +345,6 @@ impl<T: Read + Write + Seek> IntoStorage<T> for T {
     }
 }
 
-#[cfg(feature = "std")]
-impl<T: std::io::Read + std::io::Write + std::io::Seek> IntoStorage<io::StdIoWrapper<T>> for T {
-    fn into_storage(self) -> io::StdIoWrapper<Self> {
-        io::StdIoWrapper::new(self)
-    }
-}
-
 impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// Creates a new filesystem object instance.
     ///
@@ -373,7 +366,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// # Panics
     ///
     /// Panics in non-optimized build if `storage` position returned by `seek` is not zero.
-    pub fn new<T: IntoStorage<IO>>(storage: T, options: FsOptions<TP, OCC>) -> Result<Self, Error<IO::Error>> {
+    pub async fn new<T: IntoStorage<IO>>(storage: T, options: FsOptions<TP, OCC>) -> Result<Self, Error<IO::Error>> {
         // Make sure given image is not seeked
         let mut disk = storage.into_storage();
         trace!("FileSystem::new");
@@ -381,7 +374,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
 
         // read boot sector
         let bpb = {
-            let boot = BootSector::deserialize(&mut disk)?;
+            let boot = BootSector::deserialize(&mut disk).await?;
             boot.validate(options.strict)?;
             boot.bpb
         };
@@ -394,7 +387,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         // read FSInfo sector if this is FAT32
         let mut fs_info = if fat_type == FatType::Fat32 {
             disk.seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.fs_info_sector())))?;
-            FsInfoSector::deserialize(&mut disk)?
+            FsInfoSector::deserialize(&mut disk).await?
         } else {
             FsInfoSector::default()
         };
@@ -484,33 +477,33 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         ClusterIterator::new(disk_slice, self.fat_type, cluster)
     }
 
-    pub(crate) fn truncate_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
+    pub(crate) async fn truncate_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
         let mut iter = self.cluster_iter(cluster);
-        let num_free = iter.truncate()?;
+        let num_free = iter.truncate().await?;
         let mut fs_info = self.fs_info.borrow_mut();
         fs_info.map_free_clusters(|n| n + num_free);
         Ok(())
     }
 
-    pub(crate) fn free_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
+    pub(crate) async fn free_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
         let mut iter = self.cluster_iter(cluster);
-        let num_free = iter.free()?;
+        let num_free = iter.free().await?;
         let mut fs_info = self.fs_info.borrow_mut();
         fs_info.map_free_clusters(|n| n + num_free);
         Ok(())
     }
 
-    pub(crate) fn alloc_cluster(&self, prev_cluster: Option<u32>, zero: bool) -> Result<u32, Error<IO::Error>> {
+    pub(crate) async fn alloc_cluster(&self, prev_cluster: Option<u32>, zero: bool) -> Result<u32, Error<IO::Error>> {
         trace!("alloc_cluster");
         let hint = self.fs_info.borrow().next_free_cluster;
         let cluster = {
             let mut fat = self.fat_slice();
-            alloc_cluster(&mut fat, self.fat_type, prev_cluster, hint, self.total_clusters)?
+            alloc_cluster(&mut fat, self.fat_type, prev_cluster, hint, self.total_clusters).await?
         };
         if zero {
             let mut disk = self.disk.borrow_mut();
             disk.seek(SeekFrom::Start(self.offset_from_cluster(cluster)))?;
-            write_zeros(&mut *disk, u64::from(self.cluster_size()))?;
+            write_zeros(&mut *disk, u64::from(self.cluster_size())).await?;
         }
         let mut fs_info = self.fs_info.borrow_mut();
         fs_info.set_next_free_cluster(cluster + 1);
@@ -523,9 +516,9 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// # Errors
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
-    pub fn read_status_flags(&self) -> Result<FsStatusFlags, Error<IO::Error>> {
+    pub async fn read_status_flags(&self) -> Result<FsStatusFlags, Error<IO::Error>> {
         let bpb_status = self.bpb.status_flags();
-        let fat_status = read_fat_flags(&mut self.fat_slice(), self.fat_type)?;
+        let fat_status = read_fat_flags(&mut self.fat_slice(), self.fat_type).await?;
         Ok(FsStatusFlags {
             dirty: bpb_status.dirty || fat_status.dirty,
             io_error: bpb_status.io_error || fat_status.io_error,
@@ -540,12 +533,12 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// # Errors
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
-    pub fn stats(&self) -> Result<FileSystemStats, Error<IO::Error>> {
+    pub async fn stats(&self) -> Result<FileSystemStats, Error<IO::Error>> {
         let free_clusters_option = self.fs_info.borrow().free_cluster_count;
         let free_clusters = if let Some(n) = free_clusters_option {
             n
         } else {
-            self.recalc_free_clusters()?
+            self.recalc_free_clusters().await?
         };
         Ok(FileSystemStats {
             cluster_size: self.cluster_size(),
@@ -555,9 +548,9 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     }
 
     /// Forces free clusters recalculation.
-    fn recalc_free_clusters(&self) -> Result<u32, Error<IO::Error>> {
+    async fn recalc_free_clusters(&self) -> Result<u32, Error<IO::Error>> {
         let mut fat = self.fat_slice();
-        let free_cluster_count = count_free_clusters(&mut fat, self.fat_type, self.total_clusters)?;
+        let free_cluster_count = count_free_clusters(&mut fat, self.fat_type, self.total_clusters).await?;
         self.fs_info.borrow_mut().set_free_cluster_count(free_cluster_count);
         Ok(free_cluster_count)
     }
@@ -569,29 +562,29 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// # Errors
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
-    pub fn unmount(self) -> Result<(), Error<IO::Error>> {
-        self.unmount_internal()
+    pub async fn unmount(self) -> Result<(), Error<IO::Error>> {
+        self.unmount_internal().await
     }
 
-    fn unmount_internal(&self) -> Result<(), Error<IO::Error>> {
-        self.flush_fs_info()?;
-        self.set_dirty_flag(false)?;
+    async fn unmount_internal(&self) -> Result<(), Error<IO::Error>> {
+        self.flush_fs_info().await?;
+        self.set_dirty_flag(false).await?;
         Ok(())
     }
 
-    fn flush_fs_info(&self) -> Result<(), Error<IO::Error>> {
+    async fn flush_fs_info(&self) -> Result<(), Error<IO::Error>> {
         let mut fs_info = self.fs_info.borrow_mut();
         if self.fat_type == FatType::Fat32 && fs_info.dirty {
             let mut disk = self.disk.borrow_mut();
             let fs_info_sector_offset = self.offset_from_sector(u32::from(self.bpb.fs_info_sector));
             disk.seek(SeekFrom::Start(fs_info_sector_offset))?;
-            fs_info.serialize(&mut *disk)?;
+            fs_info.serialize(&mut *disk).await?;
             fs_info.dirty = false;
         }
         Ok(())
     }
 
-    pub(crate) fn set_dirty_flag(&self, dirty: bool) -> Result<(), IO::Error> {
+    pub(crate) async fn set_dirty_flag(&self, dirty: bool) -> Result<(), IO::Error> {
         // Do not overwrite flags read from BPB on mount
         let mut flags = self.bpb.status_flags();
         flags.dirty |= dirty;
@@ -611,13 +604,13 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         };
         let mut disk = self.disk.borrow_mut();
         disk.seek(io::SeekFrom::Start(offset))?;
-        disk.write_u8(encoded)?;
+        disk.write_u8(encoded).await?;
         self.current_status_flags.set(flags);
         Ok(())
     }
 
     /// Returns a root directory object allowing for futher penetration of a filesystem structure.
-    pub fn root_dir(&self) -> Dir<IO, TP, OCC> {
+    pub fn root_dir(&self) -> Dir<'_, IO, TP, OCC> {
         trace!("root_dir");
         let root_rdr = {
             match self.fat_type {
@@ -660,10 +653,10 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> FileSystem<IO, TP
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
     #[cfg(feature = "alloc")]
-    pub fn read_volume_label_from_root_dir(&self) -> Result<Option<String>, Error<IO::Error>> {
+    pub async fn read_volume_label_from_root_dir(&self) -> Result<Option<String>, Error<IO::Error>> {
         // Note: DirEntry::file_short_name() cannot be used because it interprets name as 8.3
         // (adds dot before an extension)
-        let volume_label_opt = self.read_volume_label_from_root_dir_as_bytes()?;
+        let volume_label_opt = self.read_volume_label_from_root_dir_as_bytes().await?;
         volume_label_opt.map_or(Ok(None), |volume_label| {
             // Strip label padding
             let len = volume_label
@@ -687,8 +680,8 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> FileSystem<IO, TP
     /// # Errors
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
-    pub fn read_volume_label_from_root_dir_as_bytes(&self) -> Result<Option<[u8; SFN_SIZE]>, Error<IO::Error>> {
-        let entry_opt = self.root_dir().find_volume_entry()?;
+    pub async fn read_volume_label_from_root_dir_as_bytes(&self) -> Result<Option<[u8; SFN_SIZE]>, Error<IO::Error>> {
+        let entry_opt = self.root_dir().find_volume_entry().await?;
         Ok(entry_opt.map(|e| *e.raw_short_name()))
     }
 }
@@ -696,9 +689,8 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> FileSystem<IO, TP
 /// `Drop` implementation tries to unmount the filesystem when dropping.
 impl<IO: ReadWriteSeek, TP, OCC> Drop for FileSystem<IO, TP, OCC> {
     fn drop(&mut self) {
-        if let Err(err) = self.unmount_internal() {
-            error!("unmount failed {:?}", err);
-        }
+        // unmount_internal is async, so we cannot call it in drop.
+        // User must call unmount explicitly.
     }
 }
 
@@ -706,27 +698,38 @@ pub(crate) struct FsIoAdapter<'a, IO: ReadWriteSeek, TP, OCC> {
     fs: &'a FileSystem<IO, TP, OCC>,
 }
 
+use kernel_types::async_ffi::{FfiFuture, FutureExt};
+
 impl<IO: ReadWriteSeek, TP, OCC> IoBase for FsIoAdapter<'_, IO, TP, OCC> {
     type Error = IO::Error;
 }
 
 impl<IO: ReadWriteSeek, TP, OCC> Read for FsIoAdapter<'_, IO, TP, OCC> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.fs.disk.borrow_mut().read(buf)
+    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> FfiFuture<Result<usize, Self::Error>> {
+        async move {
+            self.fs.disk.borrow_mut().read(buf).await
+        }
+        .into_ffi()
     }
 }
 
 impl<IO: ReadWriteSeek, TP, OCC> Write for FsIoAdapter<'_, IO, TP, OCC> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        let size = self.fs.disk.borrow_mut().write(buf)?;
-        if size > 0 {
-            self.fs.set_dirty_flag(true)?;
+    fn write<'a>(&'a mut self, buf: &'a [u8]) -> FfiFuture<Result<usize, Self::Error>> {
+        async move {
+            let size = self.fs.disk.borrow_mut().write(buf).await?;
+            if size > 0 {
+                self.fs.set_dirty_flag(true).await?;
+            }
+            Ok(size)
         }
-        Ok(size)
+        .into_ffi()
     }
 
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        self.fs.disk.borrow_mut().flush()
+    fn flush(&mut self) -> FfiFuture<Result<(), Self::Error>> {
+        async move {
+            self.fs.disk.borrow_mut().flush().await
+        }
+        .into_ffi()
     }
 }
 
@@ -814,35 +817,46 @@ impl<B, S: IoBase> IoBase for DiskSlice<B, S> {
 }
 
 impl<B: BorrowMut<S>, S: Read + Seek> Read for DiskSlice<B, S> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        let offset = self.begin + self.offset;
-        let read_size = (buf.len() as u64).min(self.size - self.offset) as usize;
-        self.inner.borrow_mut().seek(SeekFrom::Start(offset))?;
-        let size = self.inner.borrow_mut().read(&mut buf[..read_size])?;
-        self.offset += size as u64;
-        Ok(size)
+    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> FfiFuture<Result<usize, Self::Error>> {
+        async move {
+            let offset = self.begin + self.offset;
+            let read_size = (buf.len() as u64).min(self.size - self.offset) as usize;
+            self.inner.borrow_mut().seek(SeekFrom::Start(offset))?;
+            let size = self.inner.borrow_mut().read(&mut buf[..read_size]).await?;
+            self.offset += size as u64;
+            Ok(size)
+        }
+        .into_ffi()
     }
 }
 
 impl<B: BorrowMut<S>, S: Write + Seek> Write for DiskSlice<B, S> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        let offset = self.begin + self.offset;
-        let write_size = (buf.len() as u64).min(self.size - self.offset) as usize;
-        if write_size == 0 {
-            return Ok(0);
+    fn write<'a>(&'a mut self, buf: &'a [u8]) -> FfiFuture<Result<usize, Self::Error>> {
+        async move {
+            let offset = self.begin + self.offset;
+            let write_size = (buf.len() as u64).min(self.size - self.offset) as usize;
+            if write_size == 0 {
+                return Ok(0);
+            }
+            // Write data
+            {
+                let mut storage = self.inner.borrow_mut();
+                for i in 0..self.mirrors {
+                    storage.seek(SeekFrom::Start(offset + u64::from(i) * self.size))?;
+                    storage.write_all(&buf[..write_size]).await?;
+                }
+            }
+            self.offset += write_size as u64;
+            Ok(write_size)
         }
-        // Write data
-        let storage = self.inner.borrow_mut();
-        for i in 0..self.mirrors {
-            storage.seek(SeekFrom::Start(offset + u64::from(i) * self.size))?;
-            storage.write_all(&buf[..write_size])?;
-        }
-        self.offset += write_size as u64;
-        Ok(write_size)
+        .into_ffi()
     }
 
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        Ok(self.inner.borrow_mut().flush()?)
+    fn flush(&mut self) -> FfiFuture<Result<(), Self::Error>> {
+        async move {
+            Ok(self.inner.borrow_mut().flush().await?)
+        }
+        .into_ffi()
     }
 }
 
@@ -913,21 +927,21 @@ impl OemCpConverter for LossyOemCpConverter {
     }
 }
 
-pub(crate) fn write_zeros<IO: ReadWriteSeek>(disk: &mut IO, mut len: u64) -> Result<(), IO::Error> {
-    const ZEROS: [u8; 512] = [0_u8; 512];
-    while len > 0 {
-        let write_size = len.min(ZEROS.len() as u64) as usize;
-        disk.write_all(&ZEROS[..write_size])?;
-        len -= write_size as u64;
+pub(crate) async fn write_zeros<IO: ReadWriteSeek>(disk: &mut IO, mut len: u64) -> Result<(), IO::Error> {
+        const ZEROS: [u8; 512] = [0_u8; 512];
+        while len > 0 {
+            let write_size = len.min(ZEROS.len() as u64) as usize;
+            disk.write_all(&ZEROS[..write_size]).await?;
+            len -= write_size as u64;
+        }
+        Ok(())
     }
-    Ok(())
-}
 
-fn write_zeros_until_end_of_sector<IO: ReadWriteSeek>(disk: &mut IO, bytes_per_sector: u16) -> Result<(), IO::Error> {
+async fn write_zeros_until_end_of_sector<IO: ReadWriteSeek>(disk: &mut IO, bytes_per_sector: u16) -> Result<(), IO::Error> {
     let pos = disk.seek(SeekFrom::Current(0))?;
     let total_bytes_to_write = u64::from(bytes_per_sector) - (pos % u64::from(bytes_per_sector));
     if total_bytes_to_write != u64::from(bytes_per_sector) {
-        write_zeros(disk, total_bytes_to_write)?;
+        write_zeros(disk, total_bytes_to_write).await?;
     }
     Ok(())
 }
@@ -1144,7 +1158,7 @@ impl FormatVolumeOptions {
 ///
 /// Panics in non-optimized build if `storage` position returned by `seek` is not zero.
 #[allow(clippy::needless_pass_by_value)]
-pub fn format_volume<S: ReadWriteSeek>(storage: &mut S, options: FormatVolumeOptions) -> Result<(), Error<S::Error>> {
+pub async fn format_volume<S: ReadWriteSeek>(storage: &mut S, options: FormatVolumeOptions) -> Result<(), Error<S::Error>> {
     trace!("format_volume");
     debug_assert!(storage.seek(SeekFrom::Current(0))? == 0);
 
@@ -1166,17 +1180,17 @@ pub fn format_volume<S: ReadWriteSeek>(storage: &mut S, options: FormatVolumeOpt
     if boot.validate::<S::Error>(true).is_err() {
         return Err(Error::InvalidInput);
     }
-    boot.serialize(storage)?;
+    boot.serialize(storage).await?;
     // Make sure entire logical sector is updated (serialize method always writes 512 bytes)
     let bytes_per_sector = boot.bpb.bytes_per_sector;
-    write_zeros_until_end_of_sector(storage, bytes_per_sector)?;
+    write_zeros_until_end_of_sector(storage, bytes_per_sector).await?;
 
     let bpb = &boot.bpb;
     if bpb.is_fat32() {
         // backup boot sector
         storage.seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.backup_boot_sector())))?;
-        boot.serialize(storage)?;
-        write_zeros_until_end_of_sector(storage, bytes_per_sector)?;
+        boot.serialize(storage).await?;
+        write_zeros_until_end_of_sector(storage, bytes_per_sector).await?;
     }
 
     // format File Allocation Table
@@ -1184,12 +1198,12 @@ pub fn format_volume<S: ReadWriteSeek>(storage: &mut S, options: FormatVolumeOpt
     let fat_pos = bpb.bytes_from_sectors(reserved_sectors);
     let sectors_per_all_fats = bpb.sectors_per_all_fats();
     storage.seek(SeekFrom::Start(fat_pos))?;
-    write_zeros(storage, bpb.bytes_from_sectors(sectors_per_all_fats))?;
+    write_zeros(storage, bpb.bytes_from_sectors(sectors_per_all_fats)).await?;
     {
         let mut fat_slice = fat_slice::<S, &mut S>(storage, bpb);
         let sectors_per_fat = bpb.sectors_per_fat();
         let bytes_per_fat = bpb.bytes_from_sectors(sectors_per_fat);
-        format_fat(&mut fat_slice, fat_type, bpb.media, bytes_per_fat, bpb.total_clusters())?;
+        format_fat(&mut fat_slice, fat_type, bpb.media, bytes_per_fat, bpb.total_clusters()).await?;
     }
 
     // init root directory - zero root directory region for FAT12/16 and alloc first root directory cluster for FAT32
@@ -1197,11 +1211,11 @@ pub fn format_volume<S: ReadWriteSeek>(storage: &mut S, options: FormatVolumeOpt
     let root_dir_sectors = bpb.root_dir_sectors();
     let root_dir_pos = bpb.bytes_from_sectors(root_dir_first_sector);
     storage.seek(SeekFrom::Start(root_dir_pos))?;
-    write_zeros(storage, bpb.bytes_from_sectors(root_dir_sectors))?;
+    write_zeros(storage, bpb.bytes_from_sectors(root_dir_sectors)).await?;
     if fat_type == FatType::Fat32 {
         let root_dir_first_cluster = {
             let mut fat_slice = fat_slice::<S, &mut S>(storage, bpb);
-            alloc_cluster(&mut fat_slice, fat_type, None, None, 1)?
+            alloc_cluster(&mut fat_slice, fat_type, None, None, 1).await?
         };
         assert!(root_dir_first_cluster == bpb.root_dir_first_cluster);
         let first_data_sector = reserved_sectors + sectors_per_all_fats + root_dir_sectors;
@@ -1209,7 +1223,7 @@ pub fn format_volume<S: ReadWriteSeek>(storage: &mut S, options: FormatVolumeOpt
         let fat32_root_dir_first_sector = first_data_sector + data_sectors_before_root_dir;
         let fat32_root_dir_pos = bpb.bytes_from_sectors(fat32_root_dir_first_sector);
         storage.seek(SeekFrom::Start(fat32_root_dir_pos))?;
-        write_zeros(storage, u64::from(bpb.cluster_size()))?;
+        write_zeros(storage, u64::from(bpb.cluster_size())).await?;
 
         let free_cluster_count = bpb.total_clusters() - 1;
         let fs_info_sector = FsInfoSector {
@@ -1218,15 +1232,15 @@ pub fn format_volume<S: ReadWriteSeek>(storage: &mut S, options: FormatVolumeOpt
             dirty: false,
         };
         storage.seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.fs_info_sector())))?;
-        fs_info_sector.serialize(storage)?;
-        write_zeros_until_end_of_sector(storage, bytes_per_sector)?;
+        fs_info_sector.serialize(storage).await?;
+        write_zeros_until_end_of_sector(storage, bytes_per_sector).await?;
     }
 
     // Create volume label directory entry if volume label is specified in options
     if let Some(volume_label) = options.volume_label {
         storage.seek(SeekFrom::Start(root_dir_pos))?;
         let volume_entry = DirFileEntryData::new(volume_label, FileAttributes::VOLUME_ID);
-        volume_entry.serialize(storage)?;
+        volume_entry.serialize(storage).await?;
     }
 
     storage.seek(SeekFrom::Start(0))?;

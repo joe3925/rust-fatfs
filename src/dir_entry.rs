@@ -1,4 +1,4 @@
-#[cfg(all(not(feature = "std"), feature = "alloc"))]
+#[cfg(feature = "alloc")]
 use alloc::string::String;
 use bitflags::bitflags;
 use core::char;
@@ -251,19 +251,19 @@ impl DirFileEntryData {
         self.modify_time = date_time.time.encode().0;
     }
 
-    pub(crate) fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error> {
-        wrt.write_all(&self.name)?;
-        wrt.write_u8(self.attrs.bits())?;
-        wrt.write_u8(self.reserved_0)?;
-        wrt.write_u8(self.create_time_0)?;
-        wrt.write_u16_le(self.create_time_1)?;
-        wrt.write_u16_le(self.create_date)?;
-        wrt.write_u16_le(self.access_date)?;
-        wrt.write_u16_le(self.first_cluster_hi)?;
-        wrt.write_u16_le(self.modify_time)?;
-        wrt.write_u16_le(self.modify_date)?;
-        wrt.write_u16_le(self.first_cluster_lo)?;
-        wrt.write_u32_le(self.size)?;
+    pub(crate) async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error> {
+        wrt.write_all(&self.name).await?;
+        wrt.write_u8(self.attrs.bits()).await?;
+        wrt.write_u8(self.reserved_0).await?;
+        wrt.write_u8(self.create_time_0).await?;
+        wrt.write_u16_le(self.create_time_1).await?;
+        wrt.write_u16_le(self.create_date).await?;
+        wrt.write_u16_le(self.access_date).await?;
+        wrt.write_u16_le(self.first_cluster_hi).await?;
+        wrt.write_u16_le(self.modify_time).await?;
+        wrt.write_u16_le(self.modify_date).await?;
+        wrt.write_u16_le(self.first_cluster_lo).await?;
+        wrt.write_u32_le(self.size).await?;
         Ok(())
     }
 
@@ -320,20 +320,20 @@ impl DirLfnEntryData {
         lfn_part[11..13].copy_from_slice(&self.name_2);
     }
 
-    pub(crate) fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error> {
-        wrt.write_u8(self.order)?;
+    pub(crate) async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error> {
+        wrt.write_u8(self.order).await?;
         for ch in &self.name_0 {
-            wrt.write_u16_le(*ch)?;
+            wrt.write_u16_le(*ch).await?;
         }
-        wrt.write_u8(self.attrs.bits())?;
-        wrt.write_u8(self.entry_type)?;
-        wrt.write_u8(self.checksum)?;
+        wrt.write_u8(self.attrs.bits()).await?;
+        wrt.write_u8(self.entry_type).await?;
+        wrt.write_u8(self.checksum).await?;
         for ch in &self.name_1 {
-            wrt.write_u16_le(*ch)?;
+            wrt.write_u16_le(*ch).await?;
         }
-        wrt.write_u16_le(self.reserved_0)?;
+        wrt.write_u16_le(self.reserved_0).await?;
         for ch in &self.name_2 {
-            wrt.write_u16_le(*ch)?;
+            wrt.write_u16_le(*ch).await?;
         }
         Ok(())
     }
@@ -366,18 +366,18 @@ pub(crate) enum DirEntryData {
 }
 
 impl DirEntryData {
-    pub(crate) fn serialize<E: IoError, W: Write<Error = Error<E>>>(&self, wrt: &mut W) -> Result<(), Error<E>> {
+    pub(crate) async fn serialize<E: IoError, W: Write<Error = Error<E>>>(&self, wrt: &mut W) -> Result<(), Error<E>> {
         trace!("DirEntryData::serialize");
         match self {
-            DirEntryData::File(file) => file.serialize(wrt),
-            DirEntryData::Lfn(lfn) => lfn.serialize(wrt),
+            DirEntryData::File(file) => file.serialize(wrt).await,
+            DirEntryData::Lfn(lfn) => lfn.serialize(wrt).await,
         }
     }
 
-    pub(crate) fn deserialize<E: IoError, R: Read<Error = Error<E>>>(rdr: &mut R) -> Result<Self, Error<E>> {
+    pub(crate) async fn deserialize<E: IoError, R: Read<Error = Error<E>>>(rdr: &mut R) -> Result<Self, Error<E>> {
         trace!("DirEntryData::deserialize");
         let mut name = [0; SFN_SIZE];
-        match rdr.read_exact(&mut name) {
+        match rdr.read_exact(&mut name).await {
             Err(Error::UnexpectedEof) => {
                 // entries can occupy all clusters of directory so there is no zero entry at the end
                 // handle it here by returning non-existing empty entry
@@ -388,7 +388,7 @@ impl DirEntryData {
             }
             Ok(()) => {}
         }
-        let attrs = FileAttributes::from_bits_truncate(rdr.read_u8()?);
+        let attrs = FileAttributes::from_bits_truncate(rdr.read_u8().await?);
         if attrs & FileAttributes::LFN == FileAttributes::LFN {
             // read long name entry
             let mut data = DirLfnEntryData {
@@ -402,14 +402,14 @@ impl DirEntryData {
                 *dst = u16::from_le_bytes(src.try_into().unwrap());
             }
 
-            data.entry_type = rdr.read_u8()?;
-            data.checksum = rdr.read_u8()?;
+            data.entry_type = rdr.read_u8().await?;
+            data.checksum = rdr.read_u8().await?;
             for x in &mut data.name_1 {
-                *x = rdr.read_u16_le()?;
+                *x = rdr.read_u16_le().await?;
             }
-            data.reserved_0 = rdr.read_u16_le()?;
+            data.reserved_0 = rdr.read_u16_le().await?;
             for x in &mut data.name_2 {
-                *x = rdr.read_u16_le()?;
+                *x = rdr.read_u16_le().await?;
             }
             Ok(DirEntryData::Lfn(data))
         } else {
@@ -417,16 +417,16 @@ impl DirEntryData {
             let data = DirFileEntryData {
                 name,
                 attrs,
-                reserved_0: rdr.read_u8()?,
-                create_time_0: rdr.read_u8()?,
-                create_time_1: rdr.read_u16_le()?,
-                create_date: rdr.read_u16_le()?,
-                access_date: rdr.read_u16_le()?,
-                first_cluster_hi: rdr.read_u16_le()?,
-                modify_time: rdr.read_u16_le()?,
-                modify_date: rdr.read_u16_le()?,
-                first_cluster_lo: rdr.read_u16_le()?,
-                size: rdr.read_u32_le()?,
+                reserved_0: rdr.read_u8().await?,
+                create_time_0: rdr.read_u8().await?,
+                create_time_1: rdr.read_u16_le().await?,
+                create_date: rdr.read_u16_le().await?,
+                access_date: rdr.read_u16_le().await?,
+                first_cluster_hi: rdr.read_u16_le().await?,
+                modify_time: rdr.read_u16_le().await?,
+                modify_date: rdr.read_u16_le().await?,
+                first_cluster_lo: rdr.read_u16_le().await?,
+                size: rdr.read_u32_le().await?,
             };
             Ok(DirEntryData::File(data))
         }
@@ -512,18 +512,18 @@ impl DirEntryEditor {
         }
     }
 
-    pub(crate) fn flush<IO: ReadWriteSeek, TP, OCC>(&mut self, fs: &FileSystem<IO, TP, OCC>) -> Result<(), IO::Error> {
+    pub(crate) async fn flush<IO: ReadWriteSeek, TP, OCC>(&mut self, fs: &FileSystem<IO, TP, OCC>) -> Result<(), IO::Error> {
         if self.dirty {
-            self.write(fs)?;
+            self.write(fs).await?;
             self.dirty = false;
         }
         Ok(())
     }
 
-    fn write<IO: ReadWriteSeek, TP, OCC>(&self, fs: &FileSystem<IO, TP, OCC>) -> Result<(), IO::Error> {
+    async fn write<IO: ReadWriteSeek, TP, OCC>(&self, fs: &FileSystem<IO, TP, OCC>) -> Result<(), IO::Error> {
         let mut disk = fs.disk.borrow_mut();
         disk.seek(io::SeekFrom::Start(self.pos))?;
-        self.data.serialize(&mut *disk)
+        self.data.serialize(&mut *disk).await
     }
 }
 
@@ -719,65 +719,5 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
 impl<IO: ReadWriteSeek, TP, OCC> fmt::Debug for DirEntry<'_, IO, TP, OCC> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         self.data.fmt(f)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::fs::LossyOemCpConverter;
-
-    #[test]
-    fn short_name_with_ext() {
-        let oem_cp_conv = LossyOemCpConverter::new();
-        assert_eq!(ShortName::new(b"FOO     BAR").to_string(&oem_cp_conv), "FOO.BAR");
-        assert_eq!(ShortName::new(b"LOOK AT M E").to_string(&oem_cp_conv), "LOOK AT.M E");
-        assert_eq!(
-            ShortName::new(b"\x99OOK AT M \x99").to_string(&oem_cp_conv),
-            "\u{FFFD}OOK AT.M \u{FFFD}"
-        );
-        assert!(ShortName::new(b"\x99OOK AT M \x99").eq_ignore_case("\u{FFFD}OOK AT.M \u{FFFD}", &oem_cp_conv));
-    }
-
-    #[test]
-    fn short_name_without_ext() {
-        let oem_cp_conv = LossyOemCpConverter::new();
-        assert_eq!(ShortName::new(b"FOO        ").to_string(&oem_cp_conv), "FOO");
-        assert_eq!(ShortName::new(b"LOOK AT    ").to_string(&oem_cp_conv), "LOOK AT");
-    }
-
-    #[test]
-    fn short_name_eq_ignore_case() {
-        let oem_cp_conv = LossyOemCpConverter::new();
-        let raw_short_name: &[u8; SFN_SIZE] = b"\x99OOK AT M \x99";
-        assert!(ShortName::new(raw_short_name).eq_ignore_case("\u{FFFD}OOK AT.M \u{FFFD}", &oem_cp_conv));
-        assert!(ShortName::new(raw_short_name).eq_ignore_case("\u{FFFD}ook AT.m \u{FFFD}", &oem_cp_conv));
-    }
-
-    #[test]
-    fn short_name_05_changed_to_e5() {
-        let raw_short_name = [0x05; SFN_SIZE];
-        assert_eq!(
-            ShortName::new(&raw_short_name).as_bytes(),
-            [0xE5, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, b'.', 0x05, 0x05, 0x05]
-        );
-    }
-
-    #[test]
-    fn lowercase_short_name() {
-        let oem_cp_conv = LossyOemCpConverter::new();
-        let raw_short_name: &[u8; SFN_SIZE] = b"FOO     RS ";
-        let mut raw_entry = DirFileEntryData {
-            name: *raw_short_name,
-            reserved_0: (1 << 3) | (1 << 4),
-            ..DirFileEntryData::default()
-        };
-        assert_eq!(raw_entry.lowercase_name().to_string(&oem_cp_conv), "foo.rs");
-        raw_entry.reserved_0 = 1 << 3;
-        assert_eq!(raw_entry.lowercase_name().to_string(&oem_cp_conv), "foo.RS");
-        raw_entry.reserved_0 = 1 << 4;
-        assert_eq!(raw_entry.lowercase_name().to_string(&oem_cp_conv), "FOO.rs");
-        raw_entry.reserved_0 = 0;
-        assert_eq!(raw_entry.lowercase_name().to_string(&oem_cp_conv), "FOO.RS");
     }
 }

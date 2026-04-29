@@ -34,24 +34,6 @@ impl<T: IoError> From<T> for Error<T> {
     }
 }
 
-#[cfg(feature = "std")]
-impl From<Error<std::io::Error>> for std::io::Error {
-    fn from(error: Error<Self>) -> Self {
-        match error {
-            Error::Io(io_error) => io_error,
-            Error::UnexpectedEof | Error::NotEnoughSpace => Self::new(std::io::ErrorKind::UnexpectedEof, error),
-            Error::WriteZero => Self::new(std::io::ErrorKind::WriteZero, error),
-            Error::InvalidInput
-            | Error::InvalidFileNameLength
-            | Error::UnsupportedFileNameCharacter
-            | Error::DirectoryIsNotEmpty => Self::new(std::io::ErrorKind::InvalidInput, error),
-            Error::NotFound => Self::new(std::io::ErrorKind::NotFound, error),
-            Error::AlreadyExists => Self::new(std::io::ErrorKind::AlreadyExists, error),
-            Error::CorruptedFileSystem => Self::new(std::io::ErrorKind::InvalidData, error),
-        }
-    }
-}
-
 impl<T: core::fmt::Display> core::fmt::Display for Error<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -70,20 +52,9 @@ impl<T: core::fmt::Display> core::fmt::Display for Error<T> {
     }
 }
 
-#[cfg(feature = "std")]
-impl<T: std::error::Error + 'static> std::error::Error for Error<T> {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        if let Error::Io(io_error) = self {
-            Some(io_error)
-        } else {
-            None
-        }
-    }
-}
-
 /// Trait that should be implemented by errors returned from the user supplied storage.
 ///
-/// Implementations for `std::io::Error` and `()` are provided by this crate.
+/// Implementations for `()` are provided by this crate.
 pub trait IoError: core::fmt::Debug {
     fn is_interrupted(&self) -> bool;
     fn new_unexpected_eof_error() -> Self;
@@ -118,20 +89,5 @@ impl IoError for () {
 
     fn new_write_zero_error() -> Self {
         // empty
-    }
-}
-
-#[cfg(feature = "std")]
-impl IoError for std::io::Error {
-    fn is_interrupted(&self) -> bool {
-        self.kind() == std::io::ErrorKind::Interrupted
-    }
-
-    fn new_unexpected_eof_error() -> Self {
-        Self::new(std::io::ErrorKind::UnexpectedEof, "failed to fill whole buffer")
-    }
-
-    fn new_write_zero_error() -> Self {
-        Self::new(std::io::ErrorKind::WriteZero, "failed to write whole buffer")
     }
 }

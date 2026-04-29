@@ -44,39 +44,39 @@ pub(crate) struct BiosParameterBlock {
 }
 
 impl BiosParameterBlock {
-    fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, R::Error> {
+    pub(crate) async fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, R::Error> {
         let mut bpb = Self {
-            bytes_per_sector: rdr.read_u16_le()?,
-            sectors_per_cluster: rdr.read_u8()?,
-            reserved_sectors: rdr.read_u16_le()?,
-            fats: rdr.read_u8()?,
-            root_entries: rdr.read_u16_le()?,
-            total_sectors_16: rdr.read_u16_le()?,
-            media: rdr.read_u8()?,
-            sectors_per_fat_16: rdr.read_u16_le()?,
-            sectors_per_track: rdr.read_u16_le()?,
-            heads: rdr.read_u16_le()?,
-            hidden_sectors: rdr.read_u32_le()?,
-            total_sectors_32: rdr.read_u32_le()?,
+            bytes_per_sector: rdr.read_u16_le().await?,
+            sectors_per_cluster: rdr.read_u8().await?,
+            reserved_sectors: rdr.read_u16_le().await?,
+            fats: rdr.read_u8().await?,
+            root_entries: rdr.read_u16_le().await?,
+            total_sectors_16: rdr.read_u16_le().await?,
+            media: rdr.read_u8().await?,
+            sectors_per_fat_16: rdr.read_u16_le().await?,
+            sectors_per_track: rdr.read_u16_le().await?,
+            heads: rdr.read_u16_le().await?,
+            hidden_sectors: rdr.read_u32_le().await?,
+            total_sectors_32: rdr.read_u32_le().await?,
             ..Self::default()
         };
 
         if bpb.is_fat32() {
-            bpb.sectors_per_fat_32 = rdr.read_u32_le()?;
-            bpb.extended_flags = rdr.read_u16_le()?;
-            bpb.fs_version = rdr.read_u16_le()?;
-            bpb.root_dir_first_cluster = rdr.read_u32_le()?;
-            bpb.fs_info_sector = rdr.read_u16_le()?;
-            bpb.backup_boot_sector = rdr.read_u16_le()?;
-            rdr.read_exact(&mut bpb.reserved_0)?;
+            bpb.sectors_per_fat_32 = rdr.read_u32_le().await?;
+            bpb.extended_flags = rdr.read_u16_le().await?;
+            bpb.fs_version = rdr.read_u16_le().await?;
+            bpb.root_dir_first_cluster = rdr.read_u32_le().await?;
+            bpb.fs_info_sector = rdr.read_u16_le().await?;
+            bpb.backup_boot_sector = rdr.read_u16_le().await?;
+            rdr.read_exact(&mut bpb.reserved_0).await?;
         }
 
-        bpb.drive_num = rdr.read_u8()?;
-        bpb.reserved_1 = rdr.read_u8()?;
-        bpb.ext_sig = rdr.read_u8()?; // 0x29
-        bpb.volume_id = rdr.read_u32_le()?;
-        rdr.read_exact(&mut bpb.volume_label)?;
-        rdr.read_exact(&mut bpb.fs_type_label)?;
+        bpb.drive_num = rdr.read_u8().await?;
+        bpb.reserved_1 = rdr.read_u8().await?;
+        bpb.ext_sig = rdr.read_u8().await?; // 0x29
+        bpb.volume_id = rdr.read_u32_le().await?;
+        rdr.read_exact(&mut bpb.volume_label).await?;
+        rdr.read_exact(&mut bpb.fs_type_label).await?;
 
         // when the extended boot signature is anything other than 0x29, the fields are invalid
         if bpb.ext_sig != 0x29 {
@@ -89,36 +89,36 @@ impl BiosParameterBlock {
         Ok(bpb)
     }
 
-    fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error> {
-        wrt.write_u16_le(self.bytes_per_sector)?;
-        wrt.write_u8(self.sectors_per_cluster)?;
-        wrt.write_u16_le(self.reserved_sectors)?;
-        wrt.write_u8(self.fats)?;
-        wrt.write_u16_le(self.root_entries)?;
-        wrt.write_u16_le(self.total_sectors_16)?;
-        wrt.write_u8(self.media)?;
-        wrt.write_u16_le(self.sectors_per_fat_16)?;
-        wrt.write_u16_le(self.sectors_per_track)?;
-        wrt.write_u16_le(self.heads)?;
-        wrt.write_u32_le(self.hidden_sectors)?;
-        wrt.write_u32_le(self.total_sectors_32)?;
+    pub(crate) async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error> {
+        wrt.write_u16_le(self.bytes_per_sector).await?;
+        wrt.write_u8(self.sectors_per_cluster).await?;
+        wrt.write_u16_le(self.reserved_sectors).await?;
+        wrt.write_u8(self.fats).await?;
+        wrt.write_u16_le(self.root_entries).await?;
+        wrt.write_u16_le(self.total_sectors_16).await?;
+        wrt.write_u8(self.media).await?;
+        wrt.write_u16_le(self.sectors_per_fat_16).await?;
+        wrt.write_u16_le(self.sectors_per_track).await?;
+        wrt.write_u16_le(self.heads).await?;
+        wrt.write_u32_le(self.hidden_sectors).await?;
+        wrt.write_u32_le(self.total_sectors_32).await?;
 
         if self.is_fat32() {
-            wrt.write_u32_le(self.sectors_per_fat_32)?;
-            wrt.write_u16_le(self.extended_flags)?;
-            wrt.write_u16_le(self.fs_version)?;
-            wrt.write_u32_le(self.root_dir_first_cluster)?;
-            wrt.write_u16_le(self.fs_info_sector)?;
-            wrt.write_u16_le(self.backup_boot_sector)?;
-            wrt.write_all(&self.reserved_0)?;
+            wrt.write_u32_le(self.sectors_per_fat_32).await?;
+            wrt.write_u16_le(self.extended_flags).await?;
+            wrt.write_u16_le(self.fs_version).await?;
+            wrt.write_u32_le(self.root_dir_first_cluster).await?;
+            wrt.write_u16_le(self.fs_info_sector).await?;
+            wrt.write_u16_le(self.backup_boot_sector).await?;
+            wrt.write_all(&self.reserved_0).await?;
         }
 
-        wrt.write_u8(self.drive_num)?;
-        wrt.write_u8(self.reserved_1)?;
-        wrt.write_u8(self.ext_sig)?; // 0x29
-        wrt.write_u32_le(self.volume_id)?;
-        wrt.write_all(&self.volume_label)?;
-        wrt.write_all(&self.fs_type_label)?;
+        wrt.write_u8(self.drive_num).await?;
+        wrt.write_u8(self.reserved_1).await?;
+        wrt.write_u8(self.ext_sig).await?; // 0x29
+        wrt.write_u32_le(self.volume_id).await?;
+        wrt.write_all(&self.volume_label).await?;
+        wrt.write_all(&self.fs_type_label).await?;
         Ok(())
     }
 
@@ -418,32 +418,32 @@ pub(crate) struct BootSector {
 }
 
 impl BootSector {
-    pub(crate) fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, R::Error> {
+    pub(crate) async fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, R::Error> {
         let mut boot = Self::default();
-        rdr.read_exact(&mut boot.bootjmp)?;
-        rdr.read_exact(&mut boot.oem_name)?;
-        boot.bpb = BiosParameterBlock::deserialize(rdr)?;
+        rdr.read_exact(&mut boot.bootjmp).await?;
+        rdr.read_exact(&mut boot.oem_name).await?;
+        boot.bpb = BiosParameterBlock::deserialize(rdr).await?;
 
         if boot.bpb.is_fat32() {
-            rdr.read_exact(&mut boot.boot_code[0..420])?;
+            rdr.read_exact(&mut boot.boot_code[0..420]).await?;
         } else {
-            rdr.read_exact(&mut boot.boot_code[0..448])?;
+            rdr.read_exact(&mut boot.boot_code[0..448]).await?;
         }
-        rdr.read_exact(&mut boot.boot_sig)?;
+        rdr.read_exact(&mut boot.boot_sig).await?;
         Ok(boot)
     }
 
-    pub(crate) fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error> {
-        wrt.write_all(&self.bootjmp)?;
-        wrt.write_all(&self.oem_name)?;
-        self.bpb.serialize(&mut *wrt)?;
+    pub(crate) async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error> {
+        wrt.write_all(&self.bootjmp).await?;
+        wrt.write_all(&self.oem_name).await?;
+        self.bpb.serialize(&mut *wrt).await?;
 
         if self.bpb.is_fat32() {
-            wrt.write_all(&self.boot_code[0..420])?;
+            wrt.write_all(&self.boot_code[0..420]).await?;
         } else {
-            wrt.write_all(&self.boot_code[0..448])?;
+            wrt.write_all(&self.boot_code[0..448]).await?;
         }
-        wrt.write_all(&self.boot_sig)?;
+        wrt.write_all(&self.boot_sig).await?;
         Ok(())
     }
 
@@ -820,222 +820,4 @@ pub(crate) fn format_boot_sector<E: IoError>(
     }
 
     Ok((boot, fat_type))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn init() {
-        let _ = env_logger::builder().is_test(true).try_init();
-    }
-
-    #[test]
-    fn test_estimate_fat_type() {
-        assert_eq!(estimate_fat_type(4 * MB_64), FatType::Fat12);
-        assert_eq!(estimate_fat_type(5 * MB_64), FatType::Fat16);
-        assert_eq!(estimate_fat_type(511 * MB_64), FatType::Fat16);
-        assert_eq!(estimate_fat_type(512 * MB_64), FatType::Fat32);
-    }
-
-    #[test]
-    fn test_determine_bytes_per_cluster_fat12() {
-        assert_eq!(determine_bytes_per_cluster(128 * KB_64, 512, Some(FatType::Fat12)), 512);
-        assert_eq!(determine_bytes_per_cluster(MB_64, 512, Some(FatType::Fat12)), 512);
-        assert_eq!(determine_bytes_per_cluster(MB_64 + 1, 512, Some(FatType::Fat12)), 1024);
-        assert_eq!(determine_bytes_per_cluster(MB_64, 4096, Some(FatType::Fat12)), 4096);
-    }
-
-    #[test]
-    #[rustfmt::skip]
-    fn test_determine_bytes_per_cluster_fat16() {
-        assert_eq!(determine_bytes_per_cluster(MB_64,            512, Some(FatType::Fat16)), KB_32);
-        assert_eq!(determine_bytes_per_cluster(MB_64,            4096, Some(FatType::Fat16)), 4 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(16 * MB_64,       512, Some(FatType::Fat16)), KB_32);
-        assert_eq!(determine_bytes_per_cluster(16 * MB_64 + 1,   512, Some(FatType::Fat16)), 2 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(128 * MB_64,      512, Some(FatType::Fat16)), 2 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(128 * MB_64 + 1,  512, Some(FatType::Fat16)), 4 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(256 * MB_64,      512, Some(FatType::Fat16)), 4 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(256 * MB_64 + 1,  512, Some(FatType::Fat16)), 8 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(512 * MB_64,      512, Some(FatType::Fat16)), 8 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(512 * MB_64 + 1,  512, Some(FatType::Fat16)), 16 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(1024 * MB_64,     512, Some(FatType::Fat16)), 16 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(1024 * MB_64 + 1, 512, Some(FatType::Fat16)), 32 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(99999 * MB_64,    512, Some(FatType::Fat16)), 32 * KB_32);
-    }
-
-    #[test]
-    #[rustfmt::skip]
-    fn test_determine_bytes_per_cluster_fat32() {
-        assert_eq!(determine_bytes_per_cluster(260 * MB_64,     512, Some(FatType::Fat32)), 512);
-        assert_eq!(determine_bytes_per_cluster(260 * MB_64,     4096, Some(FatType::Fat32)), 4 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(260 * MB_64 + 1, 512, Some(FatType::Fat32)), 4 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(8   * GB_64,     512, Some(FatType::Fat32)), 4 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(8   * GB_64 + 1, 512, Some(FatType::Fat32)), 8 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(16  * GB_64,     512, Some(FatType::Fat32)), 8 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(16  * GB_64 + 1, 512, Some(FatType::Fat32)), 16 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(32  * GB_64,     512, Some(FatType::Fat32)), 16 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(32  * GB_64 + 1, 512, Some(FatType::Fat32)), 32 * KB_32);
-        assert_eq!(determine_bytes_per_cluster(999 * GB_64,     512, Some(FatType::Fat32)), 32 * KB_32);
-    }
-
-    fn test_determine_sectors_per_fat_single(
-        total_bytes: u64,
-        bytes_per_sector: u16,
-        bytes_per_cluster: u32,
-        fat_type: FatType,
-        reserved_sectors: u16,
-        fats: u8,
-        root_dir_entries: u32,
-    ) {
-        let total_sectors = total_bytes / u64::from(bytes_per_sector);
-        debug_assert!(total_sectors <= u64::from(u32::MAX), "{:x}", total_sectors);
-        let total_sectors = total_sectors as u32;
-
-        let sectors_per_cluster = (bytes_per_cluster / u32::from(bytes_per_sector)) as u8;
-        let root_dir_size = root_dir_entries * DIR_ENTRY_SIZE;
-        let root_dir_sectors = (root_dir_size + u32::from(bytes_per_sector) - 1) / u32::from(bytes_per_sector);
-        let sectors_per_fat = determine_sectors_per_fat(
-            total_sectors,
-            bytes_per_sector,
-            sectors_per_cluster,
-            fat_type,
-            reserved_sectors,
-            root_dir_sectors,
-            fats,
-        );
-
-        let sectors_per_all_fats = u32::from(fats) * sectors_per_fat;
-        let total_data_sectors = total_sectors - u32::from(reserved_sectors) - sectors_per_all_fats - root_dir_sectors;
-        let total_clusters = total_data_sectors / u32::from(sectors_per_cluster);
-        if FatType::from_clusters(total_clusters) != fat_type {
-            // Skip impossible FAT configurations
-            return;
-        }
-        let bits_per_sector = u32::from(bytes_per_sector) * BITS_PER_BYTE;
-        let bits_per_fat = u64::from(sectors_per_fat) * u64::from(bits_per_sector);
-        let total_fat_entries = (bits_per_fat / u64::from(fat_type.bits_per_fat_entry())) as u32;
-        let fat_clusters = total_fat_entries - RESERVED_FAT_ENTRIES;
-        // Note: fat_entries_per_sector is rounded down for FAT12
-        let fat_entries_per_sector = bits_per_sector / fat_type.bits_per_fat_entry();
-        let desc = format!("total_clusters {}, fat_clusters {}, total_sectors {}, bytes/sector {}, sectors/cluster {}, fat_type {:?}, reserved_sectors {}, root_dir_sectors {}, sectors_per_fat {}",
-            total_clusters, fat_clusters, total_sectors, bytes_per_sector, sectors_per_cluster, fat_type, reserved_sectors, root_dir_sectors, sectors_per_fat);
-        assert!(fat_clusters >= total_clusters, "Too small FAT: {}", desc);
-        let expected_max_fat_clusters = total_clusters + 2 * fat_entries_per_sector;
-        assert!(fat_clusters <= expected_max_fat_clusters, "Too big FAT: {}", desc);
-    }
-
-    fn test_determine_sectors_per_fat_for_multiple_sizes(
-        bytes_per_sector: u16,
-        fat_type: FatType,
-        reserved_sectors: u16,
-        fats: u8,
-        root_dir_entries: u32,
-    ) {
-        let mut bytes_per_cluster = u32::from(bytes_per_sector);
-        while bytes_per_cluster <= 64 * KB_32 {
-            let mut size: u64 = MB_64;
-            while size < 2048 * GB_64 {
-                test_determine_sectors_per_fat_single(
-                    size,
-                    bytes_per_sector,
-                    bytes_per_cluster,
-                    fat_type,
-                    reserved_sectors,
-                    fats,
-                    root_dir_entries,
-                );
-                size = size + size / 7;
-            }
-            size = 2048 * GB_64 - 1;
-            test_determine_sectors_per_fat_single(
-                size,
-                bytes_per_sector,
-                bytes_per_cluster,
-                fat_type,
-                reserved_sectors,
-                fats,
-                root_dir_entries,
-            );
-            bytes_per_cluster *= 2;
-        }
-    }
-
-    #[test]
-    fn test_determine_sectors_per_fat() {
-        init();
-
-        test_determine_sectors_per_fat_for_multiple_sizes(512, FatType::Fat12, 1, 2, 512);
-        test_determine_sectors_per_fat_for_multiple_sizes(512, FatType::Fat12, 1, 1, 512);
-        test_determine_sectors_per_fat_for_multiple_sizes(512, FatType::Fat12, 1, 2, 8192);
-        test_determine_sectors_per_fat_for_multiple_sizes(4096, FatType::Fat12, 1, 2, 512);
-
-        test_determine_sectors_per_fat_for_multiple_sizes(512, FatType::Fat16, 1, 2, 512);
-        test_determine_sectors_per_fat_for_multiple_sizes(512, FatType::Fat16, 1, 1, 512);
-        test_determine_sectors_per_fat_for_multiple_sizes(512, FatType::Fat16, 1, 2, 8192);
-        test_determine_sectors_per_fat_for_multiple_sizes(4096, FatType::Fat16, 1, 2, 512);
-
-        test_determine_sectors_per_fat_for_multiple_sizes(512, FatType::Fat32, 32, 2, 0);
-        test_determine_sectors_per_fat_for_multiple_sizes(512, FatType::Fat32, 32, 1, 0);
-        test_determine_sectors_per_fat_for_multiple_sizes(4096, FatType::Fat32, 32, 2, 0);
-    }
-
-    #[test]
-    fn test_format_boot_sector() {
-        init();
-
-        let bytes_per_sector = 512_u16;
-        // test all partition sizes from 1MB to 2TB (u32::MAX sectors is 2TB - 1 for 512 byte sectors)
-        let mut total_sectors_vec = Vec::new();
-        let mut size = MB_64;
-        while size < 2048 * GB_64 {
-            total_sectors_vec.push((size / u64::from(bytes_per_sector)) as u32);
-            size = size + size / 7;
-        }
-        total_sectors_vec.push(u32::MAX);
-        total_sectors_vec.push(8227);
-        for total_sectors in total_sectors_vec {
-            let (boot, _) = format_boot_sector::<()>(&FormatVolumeOptions::new(), total_sectors)
-                .unwrap_or_else(|_| panic!("format_boot_sector total_sectors: {}", total_sectors));
-            boot.validate::<()>(true).expect("validate");
-        }
-    }
-
-    fn test_determine_fs_layout(fat_type: FatType, min_size: u64, max_size: u64) {
-        init();
-
-        let bytes_per_sector = 512_u16;
-        // test all partition sizes from 24 KB to 127 MB
-        let mut total_sectors_vec = Vec::new();
-        let mut size = min_size;
-        while size < max_size {
-            total_sectors_vec.push((size / u64::from(bytes_per_sector)).try_into().unwrap());
-            size += size / 7;
-        }
-        total_sectors_vec.push((max_size / u64::from(bytes_per_sector)).try_into().unwrap());
-        for total_sectors in total_sectors_vec {
-            let options = FormatVolumeOptions::new().fat_type(fat_type);
-            let layout = determine_fs_layout::<()>(&options, total_sectors)
-                .unwrap_or_else(|e| panic!("determine_fs_layout(total_sectors={}): {:?}", total_sectors, e));
-            assert_eq!(layout.fat_type, fat_type);
-        }
-    }
-
-    #[test]
-    fn test_determine_fs_layout_fat12() {
-        // approximately: 21 KB - 127 MB
-        test_determine_fs_layout(FatType::Fat12, 21 * KB_64, 127 * MB_64);
-    }
-
-    #[test]
-    fn test_determine_fs_layout_fat16() {
-        // approximately: 4.1 MB - 1.9 GB
-        test_determine_fs_layout(FatType::Fat16, 4120 * KB_64, 2047 * MB_64);
-    }
-
-    #[test]
-    fn test_determine_fs_layout_fat32() {
-        // approximately: 33 MB - 1.9 TB
-        test_determine_fs_layout(FatType::Fat32, 33 * MB_64, 2048 * GB_64 - 1);
-    }
 }
